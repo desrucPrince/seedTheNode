@@ -11,12 +11,14 @@ import SwiftUI
 struct seedTheNodeApp: App {
     @State private var nodeService = NodeService()
     @State private var audioPlayer = AudioPlayer()
+    @State private var router = AppRouter()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(nodeService)
                 .environment(audioPlayer)
+                .environment(router)
         }
     }
 }

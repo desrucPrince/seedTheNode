@@ -9,24 +9,26 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(AudioPlayer.self) private var player
+    @Environment(AppRouter.self) private var router
     @Namespace private var playerAnimation
     @State private var expandPlayer = false
 
     var body: some View {
-        TabView {
-            Tab("Overview", systemImage: "bolt.fill") {
+        @Bindable var router = router
+        TabView(selection: $router.selectedTab) {
+            Tab("Overview", systemImage: "bolt.fill", value: .overview) {
                 OverviewView()
             }
 
-            Tab("Catalog", systemImage: "music.note.list") {
+            Tab("Catalog", systemImage: "music.note.list", value: .catalog) {
                 CatalogView()
             }
 
-            Tab("Upload", systemImage: "square.and.arrow.up.fill") {
+            Tab("Upload", systemImage: "square.and.arrow.up.fill", value: .upload) {
                 UploadView()
             }
 
-            Tab("Settings", systemImage: "gearshape.fill") {
+            Tab("Settings", systemImage: "gearshape.fill", value: .settings) {
                 SettingsView()
             }
         }
@@ -248,4 +250,5 @@ struct TrackGradient: View {
     ContentView()
         .environment(NodeService())
         .environment(AudioPlayer())
+        .environment(AppRouter())
 }

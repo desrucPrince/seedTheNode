@@ -11,8 +11,18 @@ import UniformTypeIdentifiers
 
 struct UploadView: View {
     @Environment(NodeService.self) private var node
+    @Environment(AppRouter.self) private var router
+
+    // User preferences from Settings
+    @AppStorage("defaultArtistName") private var defaultArtistName = ""
+    @AppStorage("useDefaultArtist") private var useDefaultArtist = true
+    @AppStorage("extractFileMetadata") private var extractFileMetadata = true
+    @AppStorage("afterUpload") private var afterUpload = AfterUploadAction.stay
+
+    // Form state
     @State private var trackTitle = ""
     @State private var artistName = ""
+    @State private var showArtistField = false
     @State private var isUploading = false
     @State private var showSuccess = false
     @State private var showFilePicker = false
@@ -20,97 +30,24 @@ struct UploadView: View {
     @State private var selectedFileName: String?
     @State private var recorder = VoiceRecorder()
 
+    /// The resolved artist: uses the override field if shown, otherwise the default
+    private var resolvedArtist: String {
+        if showArtistField || !useDefaultArtist || defaultArtistName.isEmpty {
+            return artistName
+        }
+        return defaultArtistName
+    }
+
+    private var canUpload: Bool {
+        !trackTitle.isEmpty && !resolvedArtist.isEmpty && audioReady && !isUploading
+    }
+
     var body: some View {
         NavigationStack {
             Form {
-                Section("Track Info") {
-                    TextField("Track Title", text: $trackTitle)
-                    TextField("Artist Name", text: $artistName)
-                }
-
-                Section("Audio File") {
-                    // File picker button
-                    Button {
-                        showFilePicker = true
-                    } label: {
-                        HStack {
-                            Label("Choose Audio File", systemImage: "doc.badge.plus")
-                            Spacer()
-                            if let name = selectedFileName {
-                                Text(name)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
-                    }
-
-                    // Voice recorder button
-                    Button {
-                        if recorder.isRecording {
-                            recorder.stop()
-                        } else {
-                            selectedFileURL = nil
-                            selectedFileName = nil
-                            recorder.start()
-                        }
-                    } label: {
-                        HStack {
-                            Label(
-                                recorder.isRecording ? "Stop Recording" : "Record Voice Note",
-                                systemImage: recorder.isRecording ? "stop.circle.fill" : "mic.fill"
-                            )
-                            .foregroundStyle(recorder.isRecording ? .red : .accentColor)
-                            Spacer()
-                            if recorder.isRecording {
-                                Text(recorder.formattedDuration)
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.red)
-                            } else if recorder.hasRecording {
-                                Text("Voice note ready")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-
-                    // Show what's selected
-                    if audioReady {
-                        HStack {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                            Text(audioSourceLabel)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Button("Clear", role: .destructive) {
-                                clearAudio()
-                            }
-                            .font(.caption)
-                        }
-                    }
-                }
-
-                Section {
-                    Button {
-                        Task { await upload() }
-                    } label: {
-                        HStack {
-                            Spacer()
-                            if isUploading {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text("Uploading...")
-                                    .font(.headline)
-                            } else {
-                                Label("Upload to Node", systemImage: "arrow.up.circle.fill")
-                                    .font(.headline)
-                            }
-                            Spacer()
-                        }
-                    }
-                    .disabled(trackTitle.isEmpty || artistName.isEmpty || isUploading)
-                }
+                trackInfoSection
+                audioSection
+                uploadSection
 
                 if let error = node.lastError {
                     Section {
@@ -129,14 +66,158 @@ struct UploadView: View {
                 handleFilePick(result)
             }
             .alert("Track Uploaded", isPresented: $showSuccess) {
-                Button("OK") { }
+                Button("OK") {
+                    handleAfterUpload()
+                }
             } message: {
-                Text("Your track has been added to your catalog and pinned to IPFS.")
+                Text("Your track has been pinned to IPFS and added to the catalog.")
+            }
+            .sensoryFeedback(.success, trigger: showSuccess)
+        }
+    }
+
+    // MARK: - Track Info Section
+
+    @ViewBuilder
+    private var trackInfoSection: some View {
+        Section {
+            TextField("Track Title", text: $trackTitle)
+                .textContentType(.none)
+
+            // Conditional artist field
+            if showArtistField || !useDefaultArtist || defaultArtistName.isEmpty {
+                // Full editable field
+                HStack {
+                    TextField("Artist Name", text: $artistName)
+                        .textContentType(.name)
+
+                    if useDefaultArtist && !defaultArtistName.isEmpty {
+                        Button("Use Default") {
+                            artistName = defaultArtistName
+                            showArtistField = false
+                        }
+                        .font(.caption)
+                    }
+                }
+            } else {
+                // Collapsed: show default with override option
+                HStack {
+                    Label(defaultArtistName, systemImage: "person.fill")
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    Button("Change") {
+                        artistName = defaultArtistName
+                        showArtistField = true
+                    }
+                    .font(.caption)
+                }
+            }
+        } header: {
+            Text("Track Info")
+        } footer: {
+            if useDefaultArtist && !defaultArtistName.isEmpty && !showArtistField {
+                Text("Using default artist from Settings.")
             }
         }
     }
 
-    // MARK: - Audio state
+    // MARK: - Audio Section
+
+    @ViewBuilder
+    private var audioSection: some View {
+        Section("Audio") {
+            // File picker
+            Button {
+                showFilePicker = true
+            } label: {
+                HStack {
+                    Label("Choose File", systemImage: "waveform")
+                    Spacer()
+                    if let name = selectedFileName {
+                        Text(name)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+
+            // Voice recorder
+            Button {
+                if recorder.isRecording {
+                    recorder.stop()
+                } else {
+                    selectedFileURL = nil
+                    selectedFileName = nil
+                    recorder.start()
+                }
+            } label: {
+                HStack {
+                    Label(
+                        recorder.isRecording ? "Stop Recording" : "Record Voice Note",
+                        systemImage: recorder.isRecording ? "stop.circle.fill" : "mic.fill"
+                    )
+                    .foregroundStyle(recorder.isRecording ? .red : .accentColor)
+                    Spacer()
+                    if recorder.isRecording {
+                        Text(recorder.formattedDuration)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.red)
+                    } else if recorder.hasRecording {
+                        Text("Voice note ready")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            // Status row
+            if audioReady {
+                HStack {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text(audioSourceLabel)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Clear", role: .destructive) {
+                        clearAudio()
+                    }
+                    .font(.caption)
+                }
+            }
+        }
+    }
+
+    // MARK: - Upload Section
+
+    @ViewBuilder
+    private var uploadSection: some View {
+        Section {
+            Button {
+                Task { await upload() }
+            } label: {
+                HStack {
+                    Spacer()
+                    if isUploading {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Uploading...")
+                            .font(.headline)
+                    } else {
+                        Label("Upload to Node", systemImage: "arrow.up.circle.fill")
+                            .font(.headline)
+                    }
+                    Spacer()
+                }
+            }
+            .disabled(!canUpload)
+        }
+    }
+
+    // MARK: - Audio State
 
     private var audioReady: Bool {
         selectedFileURL != nil || recorder.hasRecording
@@ -161,19 +242,56 @@ struct UploadView: View {
         recorder.deleteRecording()
     }
 
-    // MARK: - File picker handling
+    // MARK: - File Picker
 
     private func handleFilePick(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
             recorder.deleteRecording()
+
+            let accessing = url.startAccessingSecurityScopedResource()
             selectedFileURL = url
             selectedFileName = url.lastPathComponent
+
+            if extractFileMetadata {
+                Task { await extractMetadata(from: url) }
+            }
+
+            if accessing { url.stopAccessingSecurityScopedResource() }
+
         case .failure(let error):
-            // Don't show error when user simply cancels the picker
             if (error as NSError).code == CocoaError.userCancelled.rawValue { return }
             node.lastError = error.localizedDescription
+        }
+    }
+
+    // MARK: - Metadata Extraction
+
+    private func extractMetadata(from url: URL) async {
+        let asset = AVURLAsset(url: url)
+        do {
+            let metadata = try await asset.load(.metadata)
+
+            for item in metadata {
+                guard let key = item.commonKey else { continue }
+                switch key {
+                case .commonKeyTitle:
+                    if trackTitle.isEmpty, let title = try? await item.load(.stringValue) {
+                        trackTitle = title
+                    }
+                case .commonKeyArtist:
+                    if !useDefaultArtist || defaultArtistName.isEmpty {
+                        if artistName.isEmpty, let artist = try? await item.load(.stringValue) {
+                            artistName = artist
+                        }
+                    }
+                default:
+                    break
+                }
+            }
+        } catch {
+            // Metadata extraction is best-effort — don't surface errors
         }
     }
 
@@ -183,13 +301,11 @@ struct UploadView: View {
         isUploading = true
         node.lastError = nil
 
-        // 1. Create the track record
-        guard let track = await node.createTrack(title: trackTitle, artistName: artistName) else {
+        guard let track = await node.createTrack(title: trackTitle, artistName: resolvedArtist) else {
             isUploading = false
             return
         }
 
-        // 2. Upload audio if we have it
         if let fileURL = selectedFileURL {
             let accessing = fileURL.startAccessingSecurityScopedResource()
             let mimeType = mimeTypeFor(fileURL)
@@ -201,9 +317,25 @@ struct UploadView: View {
 
         isUploading = false
         showSuccess = true
+    }
+
+    private func clearForm() {
         trackTitle = ""
         artistName = ""
+        showArtistField = false
         clearAudio()
+    }
+
+    private func handleAfterUpload() {
+        switch afterUpload {
+        case .stay:
+            break
+        case .clearForm:
+            clearForm()
+        case .catalog:
+            clearForm()
+            router.selectedTab = .catalog
+        }
     }
 
     private func mimeTypeFor(_ url: URL) -> String {
@@ -293,4 +425,5 @@ final class VoiceRecorder {
 #Preview {
     UploadView()
         .environment(NodeService())
+        .environment(AppRouter())
 }

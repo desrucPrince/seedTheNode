@@ -9,10 +9,35 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(NodeService.self) private var node
+    @AppStorage("defaultArtistName") private var defaultArtistName = ""
+    @AppStorage("useDefaultArtist") private var useDefaultArtist = true
+    @AppStorage("extractFileMetadata") private var extractFileMetadata = true
+    @AppStorage("afterUpload") private var afterUpload = AfterUploadAction.stay
 
     var body: some View {
         NavigationStack {
             List {
+                Section("Artist Profile") {
+                    TextField("Artist Name", text: $defaultArtistName)
+                        .textContentType(.name)
+
+                    Toggle("Auto-fill on uploads", isOn: $useDefaultArtist)
+                }
+
+                Section {
+                    Toggle("Extract metadata from files", isOn: $extractFileMetadata)
+
+                    Picker("After upload", selection: $afterUpload) {
+                        ForEach(AfterUploadAction.allCases) { action in
+                            Text(action.label).tag(action)
+                        }
+                    }
+                } header: {
+                    Text("Upload Defaults")
+                } footer: {
+                    Text("Metadata extraction auto-fills title and artist from audio file tags when available.")
+                }
+
                 Section("Node") {
                     InfoRow(label: "Address", value: node.hostname)
                     InfoRow(label: "API Port", value: "\(node.port)")
@@ -44,6 +69,24 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+        }
+    }
+}
+
+// MARK: - After Upload Behavior
+
+enum AfterUploadAction: String, CaseIterable, Identifiable {
+    case stay
+    case clearForm
+    case catalog
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .stay: "Stay on Upload"
+        case .clearForm: "Clear & Start New"
+        case .catalog: "Go to Catalog"
         }
     }
 }
