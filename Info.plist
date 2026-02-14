@@ -9,5 +9,7 @@
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>SeedTheNode needs microphone access to record voice notes for your tracks.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>SeedTheNode uses on-device speech recognition to transcribe your voice notes and suggest track titles and tags.</string>
 </dict>
 </plist>
