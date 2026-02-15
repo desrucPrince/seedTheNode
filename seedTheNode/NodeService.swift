@@ -26,6 +26,7 @@ final class NodeService {
     var trackCount = 0
     var storage: StorageInfo?
     var ipfsInfo: IPFSInfo?
+    var uptime: UptimeInfo?
 
     // Tracks
     var tracks: [Track] = []
@@ -47,6 +48,7 @@ final class NodeService {
             trackCount = health.trackCount
             storage = health.storage
             ipfsInfo = health.ipfs
+            uptime = health.uptime
             lastChecked = Date()
             lastError = nil
         } catch {
@@ -219,6 +221,7 @@ struct HealthResponse: Decodable {
     let trackCount: Int
     let storage: StorageInfo
     let ipfs: IPFSInfo
+    let uptime: UptimeInfo?
 }
 
 struct StorageInfo: Decodable {
@@ -231,6 +234,11 @@ struct IPFSInfo: Decodable {
     let peerId: String?
     let agentVersion: String?
     let peers: Int
+}
+
+struct UptimeInfo: Decodable {
+    let systemSeconds: Int?
+    let apiSeconds: Int?
 }
 
 struct Track: Decodable, Identifiable {

@@ -21,6 +21,11 @@ struct OverviewView: View {
                         errorMessage: node.lastError
                     )
 
+                    // Uptime card
+                    if node.isOnline, let uptime = node.uptime {
+                        UptimeCard(uptime: uptime)
+                    }
+
                     // Stats row
                     HStack(spacing: 12) {
                         StatCard(
@@ -70,45 +75,43 @@ private struct StatusHeroView: View {
     let isLoading: Bool
     let errorMessage: String?
 
-    @State private var glowOpacity: Double = 0.3
-
     var body: some View {
         VStack(spacing: 12) {
             ZStack {
-                // Breathing glow background
-                Circle()
-                    .fill(statusColor.opacity(glowOpacity))
-                    .frame(width: 100, height: 100)
-
-                // Inner circle
-                Circle()
-                    .fill(statusColor.opacity(0.15))
-                    .frame(width: 72, height: 72)
-
-                // Icon
-                Image(systemName: statusIcon)
-                    .font(.system(size: 32, weight: .medium))
-                    .foregroundStyle(statusColor)
-                    .symbolEffect(.rotate, isActive: isLoading)
-            }
-            .onAppear {
                 if isOnline && !isLoading {
-                    withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
-                        glowOpacity = 0.6
-                    }
-                }
-            }
-            .onChange(of: isOnline) { _, online in
-                if online && !isLoading {
-                    withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
-                        glowOpacity = 0.6
-                    }
+                    // Radiating ripple rings — staggered with TimelineView
+                    NodePulseRings()
+
+                    Circle()
+                        .fill(.green)
+                        .frame(width: 56, height: 56)
+
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(.white)
+                } else if isLoading {
+                    Circle()
+                        .fill(Color.secondary.opacity(0.15))
+                        .frame(width: 56, height: 56)
+
+                    ProgressView()
+                        .controlSize(.large)
+                        .tint(.secondary)
                 } else {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        glowOpacity = 0.3
-                    }
+                    Circle()
+                        .fill(.red.opacity(0.15))
+                        .frame(width: 80, height: 80)
+
+                    Circle()
+                        .fill(.red)
+                        .frame(width: 56, height: 56)
+
+                    Image(systemName: "xmark")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(.white)
                 }
             }
+            .frame(width: 140, height: 140)
 
             Text(statusMessage)
                 .font(.title3.bold())
@@ -125,19 +128,112 @@ private struct StatusHeroView: View {
         .padding(.vertical, 16)
     }
 
-    private var statusColor: Color {
-        if isLoading { return .secondary }
-        return isOnline ? .green : .red
-    }
-
-    private var statusIcon: String {
-        if isLoading { return "arrow.trianglehead.2.clockwise" }
-        return isOnline ? "checkmark.circle.fill" : "xmark.circle.fill"
-    }
-
     private var statusMessage: String {
         if isLoading { return "Checking..." }
         return isOnline ? "Your Node is Running" : "Node Offline"
+    }
+}
+
+/// Three concentric rings that expand outward and fade, evenly staggered.
+/// Uses TimelineView + Canvas for GPU-accelerated continuous animation.
+private struct NodePulseRings: View {
+    private let ringCount = 3
+    private let cycleDuration: Double = 3.5
+
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            let elapsed = timeline.date.timeIntervalSinceReferenceDate
+            Canvas { context, size in
+                let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                let maxRadius: CGFloat = 68
+
+                for i in 0..<ringCount {
+                    let offset = Double(i) * (cycleDuration / Double(ringCount))
+                    let t = ((elapsed + offset).truncatingRemainder(dividingBy: cycleDuration)) / cycleDuration
+
+                    // Ease-out: starts fast, slows down
+                    let eased = 1 - pow(1 - t, 2.5)
+                    let radius = 28 + (maxRadius - 28) * eased
+                    let opacity = 0.4 * (1 - eased)
+
+                    let rect = CGRect(
+                        x: center.x - radius,
+                        y: center.y - radius,
+                        width: radius * 2,
+                        height: radius * 2
+                    )
+
+                    context.stroke(
+                        Circle().path(in: rect),
+                        with: .color(.green.opacity(opacity)),
+                        lineWidth: 2
+                    )
+                }
+            }
+        }
+        .frame(width: 140, height: 140)
+        .allowsHitTesting(false)
+    }
+}
+
+// MARK: - Uptime Card
+
+private struct UptimeCard: View {
+    let uptime: UptimeInfo
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.title3)
+                .foregroundStyle(.green)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Uptime")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let system = uptime.systemSeconds {
+                    Text(formatUptime(system))
+                        .font(.subheadline.bold().monospacedDigit())
+                } else if let api = uptime.apiSeconds {
+                    Text(formatUptime(api))
+                        .font(.subheadline.bold().monospacedDigit())
+                } else {
+                    Text("--")
+                        .font(.subheadline.bold())
+                }
+            }
+
+            Spacer()
+
+            if let api = uptime.apiSeconds, let system = uptime.systemSeconds, api != system {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("API")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Text(formatUptime(api))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.regularMaterial, in: .rect(cornerRadius: 16))
+    }
+
+    private func formatUptime(_ seconds: Int) -> String {
+        let days = seconds / 86400
+        let hours = (seconds % 86400) / 3600
+        let minutes = (seconds % 3600) / 60
+
+        if days > 0 {
+            return "\(days)d \(hours)h \(minutes)m"
+        } else if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        } else {
+            return "\(minutes)m"
+        }
     }
 }
 
