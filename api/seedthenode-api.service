@@ -1,0 +1,22 @@
+[Unit]
+Description=SeedTheNode Express API
+Documentation=https://github.com/desrucPrince/seedTheNode
+After=network-online.target ipfs.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/seedthenode/api
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Environment
+Environment=NODE_ENV=production
+Environment=PORT=3000
+
+[Install]
+WantedBy=multi-user.target
