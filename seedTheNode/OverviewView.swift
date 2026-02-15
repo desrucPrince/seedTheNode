@@ -77,41 +77,8 @@ private struct StatusHeroView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            ZStack {
-                if isOnline && !isLoading {
-                    // Radiating ripple rings — staggered with TimelineView
-                    NodePulseRings()
-
-                    Circle()
-                        .fill(.green)
-                        .frame(width: 56, height: 56)
-
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundStyle(.white)
-                } else if isLoading {
-                    Circle()
-                        .fill(Color.secondary.opacity(0.15))
-                        .frame(width: 56, height: 56)
-
-                    ProgressView()
-                        .controlSize(.large)
-                        .tint(.secondary)
-                } else {
-                    Circle()
-                        .fill(.red.opacity(0.15))
-                        .frame(width: 80, height: 80)
-
-                    Circle()
-                        .fill(.red)
-                        .frame(width: 56, height: 56)
-
-                    Image(systemName: "xmark")
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundStyle(.white)
-                }
-            }
-            .frame(width: 140, height: 140)
+            NodeOrbView(isOnline: isOnline, isLoading: isLoading)
+                .frame(width: 180, height: 180)
 
             Text(statusMessage)
                 .font(.title3.bold())
@@ -131,48 +98,6 @@ private struct StatusHeroView: View {
     private var statusMessage: String {
         if isLoading { return "Checking..." }
         return isOnline ? "Your Node is Running" : "Node Offline"
-    }
-}
-
-/// Three concentric rings that expand outward and fade, evenly staggered.
-/// Uses TimelineView + Canvas for GPU-accelerated continuous animation.
-private struct NodePulseRings: View {
-    private let ringCount = 3
-    private let cycleDuration: Double = 3.5
-
-    var body: some View {
-        TimelineView(.animation) { timeline in
-            let elapsed = timeline.date.timeIntervalSinceReferenceDate
-            Canvas { context, size in
-                let center = CGPoint(x: size.width / 2, y: size.height / 2)
-                let maxRadius: CGFloat = 68
-
-                for i in 0..<ringCount {
-                    let offset = Double(i) * (cycleDuration / Double(ringCount))
-                    let t = ((elapsed + offset).truncatingRemainder(dividingBy: cycleDuration)) / cycleDuration
-
-                    // Ease-out: starts fast, slows down
-                    let eased = 1 - pow(1 - t, 2.5)
-                    let radius = 28 + (maxRadius - 28) * eased
-                    let opacity = 0.4 * (1 - eased)
-
-                    let rect = CGRect(
-                        x: center.x - radius,
-                        y: center.y - radius,
-                        width: radius * 2,
-                        height: radius * 2
-                    )
-
-                    context.stroke(
-                        Circle().path(in: rect),
-                        with: .color(.green.opacity(opacity)),
-                        lineWidth: 2
-                    )
-                }
-            }
-        }
-        .frame(width: 140, height: 140)
-        .allowsHitTesting(false)
     }
 }
 
