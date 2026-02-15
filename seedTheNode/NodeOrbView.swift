@@ -141,26 +141,29 @@ struct NodeOrbView: View {
                     // Layer 10: Rim glow (glass-sphere edge)
                     OrbRimGlow()
                 }
-                .drawingGroup()          // Rasterize all layers → single Metal texture
                 .mask { Circle() }
+                .saturation(1.12)
+                .brightness(0.02 * sin(time * 0.7))
+                .glassEffect(.clear.tint(glassTint), in: .circle)
                 .overlay {
-                    // Inner shadow: darkened edge for spherical depth
+                    // Bright rim ON TOP of glass — lets the glass edge catch light
                     Circle()
-                        .stroke(
-                            RadialGradient(
-                                colors: [.clear, .clear, .black.opacity(0.35)],
-                                center: .center,
-                                startRadius: size * 0.25,
-                                endRadius: size * 0.50
+                        .strokeBorder(
+                            LinearGradient(
+                                stops: [
+                                    .init(color: .white.opacity(0.45), location: 0.0),
+                                    .init(color: .clear, location: 0.35),
+                                    .init(color: .clear, location: 0.65),
+                                    .init(color: .white.opacity(0.20), location: 1.0),
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
                             ),
-                            lineWidth: size * 0.08
+                            lineWidth: 1
                         )
-                        .blur(radius: size * 0.03)
+                        .blur(radius: 0.5)
                         .allowsHitTesting(false)
                 }
-                .saturation(1.15)        // Richer color without changing hue
-                .brightness(0.03 * sin(time * 0.7))  // Subtle breathing luminance
-                .glassEffect(.clear.tint(glassTint), in: .circle)
                 .modifier(OrbShadowModifier(colors: stateColors, radius: size * 0.12))
             }
         }
