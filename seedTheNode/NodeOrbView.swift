@@ -141,9 +141,27 @@ struct NodeOrbView: View {
                     // Layer 10: Rim glow (glass-sphere edge)
                     OrbRimGlow()
                 }
+                .drawingGroup()          // Rasterize all layers → single Metal texture
                 .mask { Circle() }
+                .overlay {
+                    // Inner shadow: darkened edge for spherical depth
+                    Circle()
+                        .stroke(
+                            RadialGradient(
+                                colors: [.clear, .clear, .black.opacity(0.35)],
+                                center: .center,
+                                startRadius: size * 0.25,
+                                endRadius: size * 0.50
+                            ),
+                            lineWidth: size * 0.08
+                        )
+                        .blur(radius: size * 0.03)
+                        .allowsHitTesting(false)
+                }
+                .saturation(1.15)        // Richer color without changing hue
+                .brightness(0.03 * sin(time * 0.7))  // Subtle breathing luminance
                 .glassEffect(.clear.tint(glassTint), in: .circle)
-                .modifier(OrbShadowModifier(colors: stateColors, radius: size * 0.10))
+                .modifier(OrbShadowModifier(colors: stateColors, radius: size * 0.12))
             }
         }
         .aspectRatio(1, contentMode: .fit)
@@ -470,18 +488,33 @@ private struct OrbShadowModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            // Tight inner shadow — concentrated color pool directly beneath
             .background {
                 Circle()
                     .fill(
                         LinearGradient(
-                            colors: colors,
-                            startPoint: .top,
-                            endPoint: .bottom
+                            colors: colors.map { $0.opacity(0.5) },
+                            startPoint: .bottom,
+                            endPoint: .top
                         )
                     )
-                    .blur(radius: radius)
-                    .offset(y: radius * 0.5)
-                    .opacity(0.5)
+                    .scaleEffect(0.85)
+                    .blur(radius: radius * 0.8)
+                    .offset(y: radius * 0.6)
+            }
+            // Diffuse outer bloom — wide, soft, grounds the orb in light
+            .background {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: colors.map { $0.opacity(0.2) },
+                            startPoint: .bottom,
+                            endPoint: .top
+                        )
+                    )
+                    .scaleEffect(1.3)
+                    .blur(radius: radius * 3)
+                    .offset(y: radius * 0.9)
             }
     }
 }
