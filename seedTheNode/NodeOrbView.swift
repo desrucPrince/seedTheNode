@@ -326,65 +326,68 @@ private struct OrbSpecularHighlight: View {
 
 // MARK: - OrbParticleCanvas
 
-/// Tiny bright motes that drift outward from the center,
-/// creating a sense of energy emanating from the orb.
+/// Subtle glints scattered across the orb surface that slowly drift
+/// and fade in/out, like light catching tiny imperfections in glass.
 private struct OrbParticleCanvas: View {
     let time: Double
     let size: CGFloat
     let glowColor: Color
 
-    // 8 particles with deterministic parameters (no @State needed)
-    private static let particleSeeds: [(phase: Double, speed: Double, angle: Double, size: Double)] = [
-        (0.0,  0.8,  0.4,   2.5),
-        (1.2,  1.1,  1.7,   2.0),
-        (2.5,  0.6,  2.9,   3.0),
-        (3.7,  0.9,  4.1,   1.8),
-        (4.9,  1.3,  5.3,   2.2),
-        (6.1,  0.7,  0.8,   2.8),
-        (7.3,  1.0,  3.5,   1.5),
-        (8.5,  0.85, 2.1,   2.3),
+    // Particles start at various radii across the surface (not from center)
+    private static let particleSeeds: [(phase: Double, speed: Double, angle: Double, startRadius: Double, dotSize: Double)] = [
+        (0.0,  0.35, 0.4,  0.22, 3.0),
+        (1.8,  0.45, 1.7,  0.35, 2.5),
+        (3.2,  0.30, 2.9,  0.15, 3.5),
+        (4.5,  0.40, 4.1,  0.30, 2.0),
+        (5.8,  0.50, 5.3,  0.25, 2.8),
+        (7.0,  0.28, 0.8,  0.38, 2.2),
+        (8.3,  0.38, 3.5,  0.18, 3.2),
+        (9.6,  0.33, 2.1,  0.32, 2.6),
+        (10.8, 0.42, 4.8,  0.28, 2.0),
+        (12.0, 0.36, 1.2,  0.20, 3.0),
     ]
 
-    private static let cycleDuration: Double = 5.0
+    private static let cycleDuration: Double = 7.0
 
     var body: some View {
         Canvas { context, canvasSize in
             let center = CGPoint(x: canvasSize.width / 2, y: canvasSize.height / 2)
-            let maxDrift = size * 0.38
+            let orbRadius = size * 0.42
 
             for seed in Self.particleSeeds {
-                // Each particle loops independently based on its phase offset
                 let t = ((time * seed.speed + seed.phase)
                     .truncatingRemainder(dividingBy: Self.cycleDuration)) / Self.cycleDuration
 
-                // Ease-out drift: starts near center, decelerates outward
-                let drift = maxDrift * (1 - pow(1 - t, 2.0))
+                // Start at a scattered radius, drift gently outward (small range)
+                let baseR = orbRadius * seed.startRadius
+                let drift = orbRadius * 0.12 * t  // Only 12% of radius drift
+                let r = baseR + drift
 
-                // Fade in quickly, fade out slowly
-                let alpha: Double
-                if t < 0.15 {
-                    alpha = t / 0.15
-                } else {
-                    alpha = 1.0 - ((t - 0.15) / 0.85)
-                }
+                // Slow bell-curve fade: invisible → visible → invisible
+                // Peaks at t=0.5, fully faded at edges
+                let alpha = sin(t * .pi)  // Smooth 0→1→0
 
-                let x = center.x + cos(seed.angle) * drift
-                let y = center.y + sin(seed.angle) * drift
+                // Gentle angular wobble so particles don't move in straight lines
+                let wobble = sin(time * 0.6 + seed.phase) * 0.15
+                let a = seed.angle + wobble
+
+                let x = center.x + cos(a) * r
+                let y = center.y + sin(a) * r
 
                 let rect = CGRect(
-                    x: x - seed.size / 2,
-                    y: y - seed.size / 2,
-                    width: seed.size,
-                    height: seed.size
+                    x: x - seed.dotSize / 2,
+                    y: y - seed.dotSize / 2,
+                    width: seed.dotSize,
+                    height: seed.dotSize
                 )
 
                 context.fill(
                     Circle().path(in: rect),
-                    with: .color(.white.opacity(alpha * 0.6))
+                    with: .color(.white.opacity(alpha * 0.35))
                 )
             }
         }
-        .blur(radius: 1.5)
+        .blur(radius: 2.5)
         .blendMode(.plusLighter)
         .allowsHitTesting(false)
     }
