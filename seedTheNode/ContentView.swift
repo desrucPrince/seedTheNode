@@ -174,7 +174,6 @@ struct NowPlayingFullScreen: View {
     @Environment(AudioPlayer.self) private var player
     @Environment(TranscriptService.self) private var transcriptService
     @Environment(\.dismiss) private var dismiss
-    @State private var showEQ = false
     @State private var showTranscript = false
     var animation: Namespace.ID
 
@@ -300,34 +299,15 @@ struct NowPlayingFullScreen: View {
                 }
             }
 
-            // EQ + Transcript toggles
-            HStack(spacing: 24) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        showEQ.toggle()
-                        if showEQ { showTranscript = false }
-                    }
-                } label: {
-                    Label("Equalizer", systemImage: "slider.vertical.3")
-                        .font(.subheadline)
-                        .foregroundStyle(showEQ ? .primary : .secondary)
+            // Transcript toggle
+            Button {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    showTranscript.toggle()
                 }
-
-                Button {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        showTranscript.toggle()
-                        if showTranscript { showEQ = false }
-                    }
-                } label: {
-                    Label("Transcript", systemImage: "quote.bubble.fill")
-                        .font(.subheadline)
-                        .foregroundStyle(showTranscript ? .primary : .secondary)
-                }
-            }
-
-            if showEQ {
-                EQView()
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            } label: {
+                Label("Transcript", systemImage: "quote.bubble.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(showTranscript ? .primary : .secondary)
             }
 
             Spacer()

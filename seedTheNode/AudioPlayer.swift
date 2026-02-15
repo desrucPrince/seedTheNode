@@ -27,13 +27,6 @@ final class AudioPlayer: NSObject {
 
     let queue = PlayQueue()
 
-    // EQ
-    var eqEnabled = true
-    var eqBands: [Float] = Array(repeating: 0, count: 10)
-    var eqPreset: EQPreset = .flat {
-        didSet { applyEQPreset() }
-    }
-
     // Spectrum
     var spectrumData: [Float] = Array(repeating: 0, count: 32)
     var isVisualizationActive = false {
@@ -53,15 +46,10 @@ final class AudioPlayer: NSObject {
     var formattedCurrentTime: String { formatTime(currentTime) }
     var formattedDuration: String { formatTime(duration) }
 
-    static let eqFrequencies: [Float] = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
-    static let eqLabels = ["32", "64", "125", "250", "500", "1K", "2K", "4K", "8K", "16K"]
-
     // MARK: - Audio Engine
 
     private let engine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
-    private let eqNode = AVAudioUnitEQ(numberOfBands: 10)
-
     private var audioFile: AVAudioFile?
     private var seekFrameOffset: AVAudioFramePosition = 0
     private var displayLink: CADisplayLink?
@@ -85,7 +73,6 @@ final class AudioPlayer: NSObject {
     override init() {
         super.init()
         setupEngine()
-        setupEQ()
         setupInterruptionHandling()
     }
 
@@ -93,27 +80,7 @@ final class AudioPlayer: NSObject {
 
     private func setupEngine() {
         engine.attach(playerNode)
-        // EQ temporarily disabled — stereo format mismatch causes crackling on mono files
-        // engine.attach(eqNode)
         engine.connect(playerNode, to: engine.mainMixerNode, format: nil)
-    }
-
-    private func setupEQ() {
-        for (i, freq) in Self.eqFrequencies.enumerated() {
-            let band = eqNode.bands[i]
-            band.filterType = (i == 0) ? .lowShelf : (i == 9) ? .highShelf : .parametric
-            band.frequency = freq
-            band.bandwidth = 1.0
-            band.gain = 0.0
-            band.bypass = false
-        }
-    }
-
-    /// Build a standard stereo non-interleaved Float32 format at the given sample rate.
-    /// AVAudioUnitEQ requires non-interleaved float — the file's processingFormat
-    /// is already float but may be mono. This guarantees a format the EQ accepts.
-    private func standardFormat(sampleRate: Double) -> AVAudioFormat {
-        AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2)!
     }
 
     // MARK: - Playback
@@ -264,24 +231,6 @@ final class AudioPlayer: NSObject {
             seek(to: 0)
         } else {
             playFromQueue(track: prevTrack)
-        }
-    }
-
-    // MARK: - EQ
-
-    func setEQBand(index: Int, gain: Float) {
-        guard index >= 0, index < 10 else { return }
-        let clamped = max(-12, min(12, gain))
-        eqBands[index] = clamped
-        eqNode.bands[index].gain = clamped
-        eqPreset = .custom
-    }
-
-    func applyEQPreset() {
-        let gains = eqPreset.gains
-        for (i, g) in gains.enumerated() where i < 10 {
-            eqBands[i] = g
-            eqNode.bands[i].gain = g
         }
     }
 
@@ -760,27 +709,5 @@ final class AudioPlayer: NSObject {
         let mins = Int(seconds) / 60
         let secs = Int(seconds) % 60
         return String(format: "%d:%02d", mins, secs)
-    }
-}
-
-// MARK: - EQ Presets
-
-enum EQPreset: String, CaseIterable, Identifiable {
-    case flat = "Flat"
-    case bassBoost = "Bass Boost"
-    case vocal = "Vocal"
-    case treble = "Treble"
-    case custom = "Custom"
-
-    var id: String { rawValue }
-
-    var gains: [Float] {
-        switch self {
-        case .flat:      return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-        case .bassBoost: return [8, 6, 4, 2, 0, 0, 0, 0, 0, 0]
-        case .vocal:     return [-2, -1, 0, 2, 4, 4, 2, 0, -1, -2]
-        case .treble:    return [0, 0, 0, 0, 0, 0, 2, 4, 6, 8]
-        case .custom:    return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-        }
     }
 }
