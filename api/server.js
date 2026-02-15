@@ -81,6 +81,20 @@ function getIpfsStats() {
   }
 }
 
+function getUptimeInfo() {
+  let systemUptimeSeconds = null;
+  try {
+    const raw = fs.readFileSync('/proc/uptime', 'utf-8');
+    systemUptimeSeconds = Math.floor(parseFloat(raw.split(' ')[0]));
+  } catch {
+    // Not on Linux or /proc unavailable
+  }
+  return {
+    systemSeconds: systemUptimeSeconds,
+    apiSeconds: Math.floor(process.uptime()),
+  };
+}
+
 // Validate CID format (base32/base58, alphanumeric)
 function isValidCID(cid) {
   return /^[a-zA-Z0-9]+$/.test(cid) && cid.length >= 46 && cid.length <= 128;
@@ -111,6 +125,7 @@ app.get('/api/health', (req, res) => {
   const trackCount = db.prepare('SELECT COUNT(*) as count FROM tracks').get().count;
   const storage = getStorageInfo();
   const ipfs = getIpfsStats();
+  const uptime = getUptimeInfo();
 
   res.json({
     status: 'online',
@@ -120,6 +135,7 @@ app.get('/api/health', (req, res) => {
     trackCount,
     storage,
     ipfs,
+    uptime,
   });
 });
 
