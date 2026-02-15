@@ -91,6 +91,7 @@ struct NodeOrbView: View {
                 OrbRimGlow()
             }
             .mask { Circle() }
+            .glassEffect(.regular.tint(glassTint), in: .circle)
             .modifier(OrbShadowModifier(colors: stateColors, radius: size * 0.08))
         }
         .aspectRatio(1, contentMode: .fit)
@@ -141,6 +142,11 @@ struct NodeOrbView: View {
     private var amplitudeScale: Double {
         if isLoading { return 0.6 }
         return isOnline ? 1.0 : 0.4
+    }
+
+    private var glassTint: Color {
+        if isLoading { return .gray }
+        return isOnline ? .green : .red
     }
 }
 
