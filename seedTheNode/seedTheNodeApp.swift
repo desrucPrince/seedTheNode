@@ -13,6 +13,7 @@ struct seedTheNodeApp: App {
     @State private var audioPlayer = AudioPlayer()
     @State private var router = AppRouter()
     @State private var suggestionService = TrackSuggestionService()
+    @State private var transcriptService = TranscriptService()
 
     var body: some Scene {
         WindowGroup {
@@ -21,6 +22,7 @@ struct seedTheNodeApp: App {
                 .environment(audioPlayer)
                 .environment(router)
                 .environment(suggestionService)
+                .environment(transcriptService)
         }
     }
 }

@@ -22,12 +22,26 @@ struct CatalogView: View {
                     )
                 } else {
                     List {
-                        ForEach(node.tracks) { track in
+                        ForEach(Array(node.tracks.enumerated()), id: \.element.id) { index, track in
                             TrackRow(track: track)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
                                     if track.ipfsCid != nil {
-                                        player.play(track: track, baseURL: node.baseURL)
+                                        player.playCatalog(
+                                            tracks: node.tracks,
+                                            startingAt: index,
+                                            baseURL: node.baseURL
+                                        )
+                                    }
+                                }
+                                .contextMenu {
+                                    if track.ipfsCid != nil {
+                                        Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") {
+                                            player.queue.insert(track, position: .afterCurrent)
+                                        }
+                                        Button("Play Later", systemImage: "text.line.last.and.arrowtriangle.forward") {
+                                            player.queue.insert(track, position: .end)
+                                        }
                                     }
                                 }
                         }

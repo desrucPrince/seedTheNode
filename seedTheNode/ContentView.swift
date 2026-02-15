@@ -10,6 +10,7 @@ import SwiftUI
 struct ContentView: View {
     @Environment(AudioPlayer.self) private var player
     @Environment(AppRouter.self) private var router
+    @Environment(TranscriptService.self) private var transcriptService
     @Namespace private var playerAnimation
     @State private var expandPlayer = false
 
@@ -39,6 +40,11 @@ struct ContentView: View {
         .fullScreenCover(isPresented: $expandPlayer) {
             NowPlayingFullScreen(animation: playerAnimation)
                 .navigationTransition(.zoom(sourceID: "NOWPLAYING", in: playerAnimation))
+        }
+        .onChange(of: player.currentTrackId) { _, newId in
+            if newId == nil {
+                transcriptService.clear()
+            }
         }
     }
 }
@@ -84,11 +90,27 @@ struct NowPlayingAccessory: View {
                     Spacer()
                 }
 
+                // Skip back
+                Button {
+                    player.skipPrevious()
+                } label: {
+                    Image(systemName: "backward.fill")
+                        .font(.caption)
+                }
+
                 Button {
                     player.togglePlayPause()
                 } label: {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                         .font(.body)
+                }
+
+                // Skip forward
+                Button {
+                    player.skipNext()
+                } label: {
+                    Image(systemName: "forward.fill")
+                        .font(.caption)
                 }
 
                 Button {
@@ -105,16 +127,43 @@ struct NowPlayingAccessory: View {
         .matchedTransitionSource(id: "NOWPLAYING", in: animation)
         .contextMenu {
             Button {
-                player.isLooping.toggle()
+                player.queue.toggleShuffle()
             } label: {
                 Label(
-                    player.isLooping ? "Repeat On" : "Repeat Off",
-                    systemImage: "repeat"
+                    player.queue.shuffleMode ? "Shuffle On" : "Shuffle Off",
+                    systemImage: "shuffle"
+                )
+            }
+            Button {
+                let modes = RepeatMode.allCases
+                if let idx = modes.firstIndex(of: player.queue.repeatMode) {
+                    player.queue.repeatMode = modes[(idx + 1) % modes.count]
+                }
+            } label: {
+                Label(
+                    repeatLabel,
+                    systemImage: repeatIcon
                 )
             }
             Button("Stop Playback", systemImage: "stop.fill", role: .destructive) {
                 player.stop()
             }
+        }
+    }
+
+    private var repeatLabel: String {
+        switch player.queue.repeatMode {
+        case .off: "Repeat Off"
+        case .one: "Repeat One"
+        case .all: "Repeat All"
+        }
+    }
+
+    private var repeatIcon: String {
+        switch player.queue.repeatMode {
+        case .off: "repeat"
+        case .one: "repeat.1"
+        case .all: "repeat"
         }
     }
 }
@@ -123,13 +172,24 @@ struct NowPlayingAccessory: View {
 
 struct NowPlayingFullScreen: View {
     @Environment(AudioPlayer.self) private var player
+    @Environment(TranscriptService.self) private var transcriptService
     @Environment(\.dismiss) private var dismiss
+    @State private var showEQ = false
+    @State private var showTranscript = false
     var animation: Namespace.ID
 
     var body: some View {
-        VStack(spacing: 32) {
-            // Drag indicator + close
+        VStack(spacing: 24) {
+            // Header
             HStack {
+                VStack(alignment: .leading) {
+                    Text("PLAYING FROM QUEUE")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text("\(player.queue.count) tracks")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
                 Spacer()
                 Button {
                     dismiss()
@@ -143,11 +203,33 @@ struct NowPlayingFullScreen: View {
 
             Spacer()
 
-            // Large artwork
-            TrackGradient(id: player.currentTrackId ?? "")
-                .frame(width: 280, height: 280)
-                .clipShape(.rect(cornerRadius: 20, style: .continuous))
-                .shadow(radius: 20, y: 10)
+            // Artwork / Transcript toggle area
+            Group {
+                if showTranscript {
+                    LyricsTranscriptView()
+                        .frame(width: 300, height: 300)
+                        .clipShape(.rect(cornerRadius: 20, style: .continuous))
+                } else {
+                    TrackGradient(id: player.currentTrackId ?? "")
+                        .overlay(alignment: .bottom) {
+                            if player.isVisualizationActive && player.isPlaying {
+                                SpectrumView()
+                                    .padding(.horizontal, 20)
+                                    .padding(.bottom, 16)
+                                    .frame(height: 120)
+                                    .allowsHitTesting(false)
+                            }
+                        }
+                        .frame(width: 280, height: 280)
+                        .clipShape(.rect(cornerRadius: 20, style: .continuous))
+                        .shadow(radius: 20, y: 10)
+                }
+            }
+            .onAppear { player.isVisualizationActive = !showTranscript }
+            .onDisappear { player.isVisualizationActive = false }
+            .onChange(of: showTranscript) { _, showing in
+                player.isVisualizationActive = !showing
+            }
 
             // Track info
             VStack(spacing: 6) {
@@ -176,31 +258,76 @@ struct NowPlayingFullScreen: View {
             }
             .padding(.horizontal, 24)
 
-            // Controls
-            HStack(spacing: 44) {
+            // Transport controls
+            HStack(spacing: 40) {
+                // Shuffle
                 Button {
-                    player.isLooping.toggle()
+                    player.queue.toggleShuffle()
                 } label: {
-                    Image(systemName: "repeat")
+                    Image(systemName: "shuffle")
                         .font(.title3)
-                        .foregroundStyle(player.isLooping ? .primary : .tertiary)
+                        .foregroundStyle(player.queue.shuffleMode ? .primary : .tertiary)
                 }
 
-                Button {
-                    player.togglePlayPause()
-                } label: {
+                // Previous
+                Button { player.skipPrevious() } label: {
+                    Image(systemName: "backward.fill")
+                        .font(.title2)
+                }
+
+                // Play/Pause
+                Button { player.togglePlayPause() } label: {
                     Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                         .font(.system(size: 60))
                 }
 
-                Button {
-                    player.stop()
-                    dismiss()
-                } label: {
-                    Image(systemName: "stop.fill")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
+                // Next
+                Button { player.skipNext() } label: {
+                    Image(systemName: "forward.fill")
+                        .font(.title2)
                 }
+
+                // Repeat
+                Button {
+                    let modes = RepeatMode.allCases
+                    if let idx = modes.firstIndex(of: player.queue.repeatMode) {
+                        player.queue.repeatMode = modes[(idx + 1) % modes.count]
+                    }
+                } label: {
+                    Image(systemName: player.queue.repeatMode == .one ? "repeat.1" : "repeat")
+                        .font(.title3)
+                        .foregroundStyle(player.queue.repeatMode != .off ? .primary : .tertiary)
+                }
+            }
+
+            // EQ + Transcript toggles
+            HStack(spacing: 24) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        showEQ.toggle()
+                        if showEQ { showTranscript = false }
+                    }
+                } label: {
+                    Label("Equalizer", systemImage: "slider.vertical.3")
+                        .font(.subheadline)
+                        .foregroundStyle(showEQ ? .primary : .secondary)
+                }
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        showTranscript.toggle()
+                        if showTranscript { showEQ = false }
+                    }
+                } label: {
+                    Label("Transcript", systemImage: "quote.bubble.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(showTranscript ? .primary : .secondary)
+                }
+            }
+
+            if showEQ {
+                EQView()
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
             Spacer()
@@ -208,6 +335,19 @@ struct NowPlayingFullScreen: View {
         .padding()
         .background(.ultraThinMaterial)
         .interactiveDismissDisabled(false)
+        .onAppear {
+            if let cid = player.currentTrackCID,
+               let fileURL = player.tempFileURL {
+                transcriptService.loadTranscript(cid: cid, audioFileURL: fileURL)
+            }
+        }
+        .onChange(of: player.tempFileURL) { _, newURL in
+            // Trigger on tempFileURL change — this fires AFTER download completes,
+            // so both the CID and file are guaranteed to be for the same track.
+            if let cid = player.currentTrackCID, let fileURL = newURL {
+                transcriptService.loadTranscript(cid: cid, audioFileURL: fileURL)
+            }
+        }
     }
 }
 
@@ -251,4 +391,5 @@ struct TrackGradient: View {
         .environment(NodeService())
         .environment(AudioPlayer())
         .environment(AppRouter())
+        .environment(TranscriptService())
 }
