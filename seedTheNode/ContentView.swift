@@ -77,9 +77,21 @@ struct NowPlayingAccessory: View {
                                 .foregroundStyle(.red)
                                 .lineLimit(1)
                         } else if player.isBuffering {
-                            Text("Buffering...")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                            HStack(spacing: 6) {
+                                if player.downloadProgress > 0 {
+                                    ProgressView(value: player.downloadProgress)
+                                        .progressViewStyle(.linear)
+                                        .frame(width: 60)
+                                        .tint(.secondary)
+                                    Text("\(Int(player.downloadProgress * 100))%")
+                                        .font(.caption2.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    Text("Connecting...")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                         } else {
                             Text(player.currentArtistName ?? "")
                                 .font(.caption2)

@@ -11,6 +11,8 @@ struct CatalogView: View {
     @Environment(NodeService.self) private var node
     @Environment(AudioPlayer.self) private var player
 
+    @State private var trackToDelete: Track?
+
     var body: some View {
         NavigationStack {
             Group {
@@ -42,15 +44,16 @@ struct CatalogView: View {
                                         Button("Play Later", systemImage: "text.line.last.and.arrowtriangle.forward") {
                                             player.queue.insert(track, position: .end)
                                         }
+                                        Divider()
+                                    }
+                                    Button("Delete Track", systemImage: "trash", role: .destructive) {
+                                        trackToDelete = track
                                     }
                                 }
                         }
                         .onDelete { indexSet in
-                            Task {
-                                for index in indexSet {
-                                    let track = node.tracks[index]
-                                    _ = await node.deleteTrack(track.id)
-                                }
+                            if let index = indexSet.first {
+                                trackToDelete = node.tracks[index]
                             }
                         }
                     }
@@ -63,6 +66,37 @@ struct CatalogView: View {
             .task {
                 await node.fetchTracks()
             }
+            .alert("Delete Track?", isPresented: .init(
+                get: { trackToDelete != nil },
+                set: { if !$0 { trackToDelete = nil } }
+            )) {
+                Button("Cancel", role: .cancel) {
+                    trackToDelete = nil
+                }
+                Button("Delete", role: .destructive) {
+                    if let track = trackToDelete {
+                        deleteTrack(track)
+                        trackToDelete = nil
+                    }
+                }
+            } message: {
+                if let track = trackToDelete {
+                    Text("\(track.title) will be removed from the node and unpinned from IPFS.")
+                }
+            }
+        }
+    }
+
+    private func deleteTrack(_ track: Track) {
+        // If deleting the currently playing track, skip to next (or stop)
+        if player.currentTrackId == track.id {
+            player.skipNext()
+        }
+        // Also remove from the play queue
+        player.queue.remove(trackId: track.id)
+
+        Task {
+            _ = await node.deleteTrack(track.id)
         }
     }
 }

@@ -53,11 +53,21 @@ final class AudioPlayer: NSObject {
     private var audioFile: AVAudioFile?
     private var seekFrameOffset: AVAudioFramePosition = 0
     private var displayLink: CADisplayLink?
-    private var downloadTask: URLSessionDataTask?
+    private var downloadTask: URLSessionDownloadTask?
     private(set) var tempFileURL: URL?
     private var baseURL: String = ""
     private var hasSetupRemoteCommands = false
     private var spectrumTapInstalled = false
+    var downloadProgress: Double = 0
+    private var _downloadSession: URLSession?
+    private var downloadSession: URLSession {
+        if let session = _downloadSession { return session }
+        let session = URLSession(configuration: .default,
+                                 delegate: DownloadDelegate(player: self),
+                                 delegateQueue: nil)
+        _downloadSession = session
+        return session
+    }
 
     // Generation counter — incremented on every new playback or seek.
     // Completion callbacks capture the current value; if it doesn't match
@@ -165,6 +175,7 @@ final class AudioPlayer: NSObject {
     func stop() {
         downloadTask?.cancel()
         downloadTask = nil
+        downloadProgress = 0
         stopEngine()
         cleanupTempFile()
         queue.clear()
@@ -249,44 +260,48 @@ final class AudioPlayer: NSObject {
             return
         }
 
-        downloadTask = URLSession.shared.dataTask(with: url) { [weak self] data, response, err in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.downloadTask = nil
-
-                if let err {
-                    self.isBuffering = false
-                    self.error = err.localizedDescription
-                    return
-                }
-
-                if let http = response as? HTTPURLResponse, http.statusCode != 200 {
-                    self.isBuffering = false
-                    self.error = "Server returned HTTP \(http.statusCode)"
-                    return
-                }
-
-                guard let data, !data.isEmpty else {
-                    self.isBuffering = false
-                    self.error = "No audio data received"
-                    return
-                }
-
-                self.startPlayback(data: data, cid: cid)
-            }
-        }
+        downloadProgress = 0
+        downloadTask = downloadSession.downloadTask(with: url)
         downloadTask?.resume()
     }
 
-    private func startPlayback(data: Data, cid: String) {
-        let tempURL = FileManager.default.temporaryDirectory
+    func handleDownloadCompletion(fileURL: URL) {
+        downloadTask = nil
+        downloadProgress = 1.0
+
+        guard let cid = currentTrackCID else {
+            isBuffering = false
+            error = "Track CID missing after download"
+            return
+        }
+
+        let stableName = FileManager.default.temporaryDirectory
             .appendingPathComponent("playback_\(cid).m4a")
+        try? FileManager.default.removeItem(at: stableName)
 
         do {
-            try data.write(to: tempURL, options: .atomic)
-            tempFileURL = tempURL
+            try FileManager.default.moveItem(at: fileURL, to: stableName)
+        } catch {
+            isBuffering = false
+            self.error = "Failed to save audio: \(error.localizedDescription)"
+            return
+        }
 
-            let file = try AVAudioFile(forReading: tempURL)
+        startPlayback(fileURL: stableName, cid: cid)
+    }
+
+    func handleDownloadError(_ err: Error) {
+        downloadTask = nil
+        isBuffering = false
+        downloadProgress = 0
+        error = err.localizedDescription
+    }
+
+    private func startPlayback(fileURL: URL, cid: String) {
+        tempFileURL = fileURL
+
+        do {
+            let file = try AVAudioFile(forReading: fileURL)
             audioFile = file
 
             let fileSampleRate = file.processingFormat.sampleRate
@@ -709,5 +724,62 @@ final class AudioPlayer: NSObject {
         let mins = Int(seconds) / 60
         let secs = Int(seconds) % 60
         return String(format: "%d:%02d", mins, secs)
+    }
+}
+
+// MARK: - Download Delegate
+
+private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+
+    weak var player: AudioPlayer?
+
+    init(player: AudioPlayer) {
+        self.player = player
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        guard totalBytesExpectedToWrite > 0 else { return }
+        let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+        Task { @MainActor [weak player] in
+            player?.downloadProgress = progress
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {
+        // URLSession deletes the file after this method returns — move it now
+        let dest = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".m4a")
+        do {
+            try FileManager.default.moveItem(at: location, to: dest)
+        } catch {
+            Task { @MainActor [weak player] in
+                player?.handleDownloadError(error)
+            }
+            return
+        }
+        Task { @MainActor [weak player] in
+            player?.handleDownloadCompletion(fileURL: dest)
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: Error?
+    ) {
+        guard let error, (error as NSError).code != NSURLErrorCancelled else { return }
+        Task { @MainActor [weak player] in
+            player?.handleDownloadError(error)
+        }
     }
 }

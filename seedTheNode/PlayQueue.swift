@@ -170,6 +170,35 @@ final class PlayQueue {
         }
     }
 
+    func remove(trackId: String) {
+        guard let idx = tracks.firstIndex(where: { $0.id == trackId }) else { return }
+
+        // Adjust currentIndex if the removed track is before or at the current position
+        let wasBeforeCurrent = idx < currentIndex
+        let wasAtCurrent = idx == currentIndex
+
+        tracks.remove(at: idx)
+
+        if shuffleMode {
+            // Remove from shuffled indices and adjust remaining
+            shuffledIndices.removeAll { $0 == idx }
+            for i in shuffledIndices.indices {
+                if shuffledIndices[i] > idx {
+                    shuffledIndices[i] -= 1
+                }
+            }
+            if shuffledPosition >= shuffledIndices.count {
+                shuffledPosition = max(0, shuffledIndices.count - 1)
+            }
+        }
+
+        if wasBeforeCurrent {
+            currentIndex = max(0, currentIndex - 1)
+        } else if wasAtCurrent {
+            currentIndex = min(currentIndex, max(0, tracks.count - 1))
+        }
+    }
+
     func toggleShuffle() {
         shuffleMode.toggle()
         if shuffleMode {
