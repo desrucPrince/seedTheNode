@@ -1,6 +1,6 @@
 const express = require('express');
 const Database = require('better-sqlite3');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
@@ -38,6 +38,10 @@ db.exec(`
     FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
   );
 `);
+
+// Migrations — add columns for streaming metadata (no-op after first run)
+try { db.exec(`ALTER TABLE tracks ADD COLUMN mime_type TEXT`); } catch {}
+try { db.exec(`ALTER TABLE tracks ADD COLUMN file_size INTEGER`); } catch {}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -186,10 +190,21 @@ app.post('/api/tracks', (req, res) => {
   res.status(201).json(track);
 });
 
-// Delete a track
+// Delete a track — unpin from IPFS, then remove from DB
 app.delete('/api/tracks/:id', (req, res) => {
-  const result = db.prepare('DELETE FROM tracks WHERE id = ?').run(req.params.id);
-  if (result.changes === 0) return res.status(404).json({ error: 'Track not found' });
+  const track = db.prepare('SELECT ipfs_cid FROM tracks WHERE id = ?').get(req.params.id);
+  if (!track) return res.status(404).json({ error: 'Track not found' });
+
+  // Unpin from IPFS if the track had audio
+  if (track.ipfs_cid) {
+    try {
+      execFileSync('ipfs', ['pin', 'rm', track.ipfs_cid]);
+    } catch {
+      // Pin may already be removed or never existed — not fatal
+    }
+  }
+
+  db.prepare('DELETE FROM tracks WHERE id = ?').run(req.params.id);
   res.json({ deleted: true });
 });
 
@@ -212,10 +227,14 @@ app.post('/api/tracks/:id/upload', upload.single('audio'), (req, res) => {
     // Pin the CID
     execFileSync('ipfs', ['pin', 'add', cid]);
 
-    // Update track with the CID
+    // Capture file metadata before cleanup
+    const fileSize = fs.statSync(req.file.path).size;
+    const mimeType = req.file.mimetype;
+
+    // Update track with CID and streaming metadata
     const now = new Date().toISOString();
-    db.prepare('UPDATE tracks SET ipfs_cid = ?, updated_at = ? WHERE id = ?')
-      .run(cid, now, req.params.id);
+    db.prepare('UPDATE tracks SET ipfs_cid = ?, mime_type = ?, file_size = ?, updated_at = ? WHERE id = ?')
+      .run(cid, mimeType, fileSize, now, req.params.id);
 
     // Create a version record
     const versionCount = db.prepare(
@@ -255,20 +274,89 @@ app.get('/api/ipfs/:cid', (req, res) => {
   }
 });
 
-// Stream audio from IPFS — AVPlayer hits this URL directly
+// Stream audio from IPFS — pipes stdout directly, no memory buffering
 app.get('/api/stream/:cid', (req, res) => {
   if (!isValidCID(req.params.cid)) {
     return res.status(400).json({ error: 'Invalid CID format' });
   }
-  try {
-    const data = execFileSync('ipfs', ['cat', req.params.cid], { maxBuffer: 200 * 1024 * 1024 });
-    res.set('Content-Type', 'audio/mp4');
-    res.set('Content-Length', data.length);
-    res.set('Accept-Ranges', 'bytes');
-    res.send(data);
-  } catch (err) {
-    res.status(404).json({ error: 'CID not found or IPFS error' });
+
+  // Look up stored metadata for accurate Content-Length and MIME type
+  const track = db.prepare(
+    'SELECT mime_type, file_size FROM tracks WHERE ipfs_cid = ?'
+  ).get(req.params.cid);
+
+  const mimeType = track?.mime_type || 'audio/mp4';
+  const totalSize = track?.file_size || null;
+
+  // Parse Range header (RFC 7233 single-range)
+  const rangeHeader = req.headers['range'];
+  let start = 0;
+  let end = totalSize ? totalSize - 1 : null;
+  let isRange = false;
+
+  if (rangeHeader && totalSize) {
+    const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+    if (match) {
+      start = parseInt(match[1], 10);
+      end = match[2] ? parseInt(match[2], 10) : totalSize - 1;
+      if (start > end || start >= totalSize) {
+        res.status(416).set('Content-Range', `bytes */${totalSize}`).end();
+        return;
+      }
+      isRange = true;
+    }
   }
+
+  // Build ipfs cat arguments — use --offset/--length for range requests
+  const ipfsArgs = ['cat'];
+  if (isRange) {
+    ipfsArgs.push(`--offset=${start}`, `--length=${end - start + 1}`);
+  }
+  ipfsArgs.push(req.params.cid);
+
+  // Set response headers
+  res.set('Content-Type', mimeType);
+  res.set('Accept-Ranges', totalSize ? 'bytes' : 'none');
+
+  if (isRange && totalSize) {
+    res.set('Content-Range', `bytes ${start}-${end}/${totalSize}`);
+    res.set('Content-Length', end - start + 1);
+    res.status(206);
+  } else if (totalSize) {
+    res.set('Content-Length', totalSize);
+  }
+
+  const child = spawn('ipfs', ipfsArgs);
+
+  child.stdout.pipe(res);
+
+  // Clean up if client disconnects mid-stream
+  req.on('close', () => {
+    child.kill('SIGTERM');
+  });
+
+  child.on('error', (err) => {
+    console.error('[stream] ipfs spawn error:', err.message);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'IPFS process error' });
+    } else {
+      res.destroy();
+    }
+  });
+
+  child.stderr.on('data', (data) => {
+    const msg = data.toString().trim();
+    if (msg) console.error('[stream] ipfs stderr:', msg);
+  });
+
+  child.on('exit', (code) => {
+    if (code !== 0 && code !== null) {
+      console.error('[stream] ipfs cat exited with code', code);
+      if (!res.headersSent) {
+        res.status(404).json({ error: 'CID not found' });
+      }
+    }
+  });
 });
 
 // Pin a CID
