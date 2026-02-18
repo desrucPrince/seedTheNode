@@ -42,6 +42,7 @@ db.exec(`
 // Migrations — add columns for streaming metadata (no-op after first run)
 try { db.exec(`ALTER TABLE tracks ADD COLUMN mime_type TEXT`); } catch {}
 try { db.exec(`ALTER TABLE tracks ADD COLUMN file_size INTEGER`); } catch {}
+try { db.exec(`ALTER TABLE tracks ADD COLUMN duration REAL`); } catch {}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -102,6 +103,22 @@ function getUptimeInfo() {
 // Validate CID format (base32/base58, alphanumeric)
 function isValidCID(cid) {
   return /^[a-zA-Z0-9]+$/.test(cid) && cid.length >= 46 && cid.length <= 128;
+}
+
+// Extract audio duration (seconds) via ffprobe — returns null on failure
+function getDuration(filePath) {
+  try {
+    const output = execFileSync('ffprobe', [
+      '-v', 'quiet',
+      '-print_format', 'json',
+      '-show_format',
+      filePath,
+    ]).toString();
+    const dur = parseFloat(JSON.parse(output).format?.duration);
+    return isFinite(dur) ? dur : null;
+  } catch {
+    return null;
+  }
 }
 
 // File upload storage — temp dir, cleaned up after IPFS add
@@ -230,11 +247,12 @@ app.post('/api/tracks/:id/upload', upload.single('audio'), (req, res) => {
     // Capture file metadata before cleanup
     const fileSize = fs.statSync(req.file.path).size;
     const mimeType = req.file.mimetype;
+    const duration = getDuration(req.file.path);
 
-    // Update track with CID and streaming metadata
+    // Update track with CID, streaming metadata, and duration
     const now = new Date().toISOString();
-    db.prepare('UPDATE tracks SET ipfs_cid = ?, mime_type = ?, file_size = ?, updated_at = ? WHERE id = ?')
-      .run(cid, mimeType, fileSize, now, req.params.id);
+    db.prepare('UPDATE tracks SET ipfs_cid = ?, mime_type = ?, file_size = ?, duration = ?, updated_at = ? WHERE id = ?')
+      .run(cid, mimeType, fileSize, duration, now, req.params.id);
 
     // Create a version record
     const versionCount = db.prepare(
