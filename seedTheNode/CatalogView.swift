@@ -136,11 +136,21 @@ struct TrackRow: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     Spacer()
+                    if let dur = track.formattedDuration {
+                        Text(dur)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
                     if track.ipfsCid != nil {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                             .font(.caption)
                     }
+                }
+                if let size = track.formattedFileSize {
+                    Text(size)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
             }
         }

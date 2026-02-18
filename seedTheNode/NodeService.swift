@@ -249,14 +249,40 @@ struct Track: Decodable, Identifiable {
     let createdAt: String
     let updatedAt: String
     let versionCount: Int?
+    let fileSize: Int?
+    let mimeType: String?
+    let duration: Double?
 
     enum CodingKeys: String, CodingKey {
-        case id, title
+        case id, title, duration
         case artistName = "artist_name"
         case ipfsCid = "ipfs_cid"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case versionCount = "version_count"
+        case fileSize = "file_size"
+        case mimeType = "mime_type"
+    }
+
+    var formattedDuration: String? {
+        guard let duration, duration > 0 else { return nil }
+        let total = Int(duration)
+        let hours = total / 3600
+        let mins = (total % 3600) / 60
+        let secs = total % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, mins, secs)
+        }
+        return String(format: "%d:%02d", mins, secs)
+    }
+
+    var formattedFileSize: String? {
+        guard let fileSize, fileSize > 0 else { return nil }
+        let mb = Double(fileSize) / (1024 * 1024)
+        if mb >= 1.0 {
+            return String(format: "%.1f MB", mb)
+        }
+        return String(format: "%.0f KB", Double(fileSize) / 1024)
     }
 }
 
